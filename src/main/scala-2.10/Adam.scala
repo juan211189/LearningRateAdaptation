@@ -4,52 +4,67 @@ import org.apache.spark.mllib.linalg.{DenseVector, SparseVector, Vector}
 
 import scala.math._
 
-final class AdaGrad extends Updater {
+
+final class Adam extends Updater {
         
         // Records the past values of the square values of the gradient
-        var historicalGradients : BV[Double] = null
+        
+        var (mean, variance): (BV[Double], BV[Double]) = (null, null)
+        
         val epsilon : Float = 1e-8f
+        val decayFactor : Float = 1 - epsilon
+        val beta1 : Float = 0.9f
+        val beta2 : Float = 0.999f
+        
+        var time: Int = 0
         
         override def compute(
-                weightsOld: Vector,
-                gradient: Vector,
-                stepSize: Double,
-                iter: Int,
-                regParam: Double
-                ): (Vector, Double) = {
-                
+                                    weightsOld: Vector,
+                                    gradient: Vector,
+                                    stepSize: Double,
+                                    iter: Int,
+                                    regParam: Double
+                            ): (Vector, Double) = {
+        
                 val gradientSize = gradient.size
         
-                val thisIterStepSize:Double = stepSize
         
-                val brzWeights: BV[Double] = asBreeze(weightsOld.toArray).toDenseVector
-                var brzGradients: BV[Double] = asBreeze(gradient.toArray).toDenseVector
-        
-                var accumulatorSquare: BV[Double] = brzGradients.copy
-                
-        
-                print(iter)
-                
-                if(historicalGradients == null){
-                        historicalGradients = BDV.zeros[Double](gradientSize)
+                if( mean == null) {
+                        mean            = BDV.zeros[Double](gradientSize)
+                        variance        = BDV.zeros[Double](gradientSize)
                 }
+                
+                val brzWeights: BV[Double] = asBreeze(weightsOld.toArray).toDenseVector
+                val brzGradients: BV[Double] = asBreeze(gradient.toArray).toDenseVector
         
-                accumulatorSquare :*= brzGradients
+                val brzGradientsSquared: BV[Double] = brzGradients :+ brzGradients
                 
-                val accumulatorSquareCopy: BV[Double] = accumulatorSquare.copy
+                time = time + 1
         
-                accumulatorSquare :+= historicalGradients
+                val currentIterStepSize : Double = ( stepSize * math.sqrt(1.0f - math.pow(beta2, time)) / ( 1.0f - math.pow(beta1,time)))
                 
-                accumulatorSquare :+= epsilon.toDouble
+                val currentBeta1 : Double       = beta1 * math.pow(decayFactor, time - 1)
                 
-                historicalGradients :+= accumulatorSquareCopy
+                val currentMeanLefthandside  : BV[Double]   = mean :* currentBeta1
+                val currentMeanRighthandside : BV[Double]   = brzGradients :* (1.0f - currentBeta1)
+                val currentMean              : BV[Double]   = currentMeanLefthandside + currentMeanRighthandside
                 
-                accumulatorSquare.map( item => math.sqrt(item))
+                val currentVarianceLefthandside  : BV[Double] = variance :* beta2.toDouble
+                val currentVarianceRighthandside : BV[Double] = brzGradientsSquared :* ( 1.0f - beta2).toDouble
+                val currentVariance              : BV[Double] = currentVarianceLefthandside + currentVarianceRighthandside
+                val currentVarianceSquareroot    : BV[Double] = currentVariance.copy.map(item => math.sqrt(item))
                 
-                brzGradients :/= accumulatorSquare
+                val currentStepLefthandside      : BV[Double] = currentMean :+ currentIterStepSize
+                val currentStepRighthandside     : BV[Double] = currentVarianceSquareroot + epsilon.toDouble
+                val currentStep                  : BV[Double] = currentStepLefthandside :/ currentStepRighthandside
         
-                brzAxpy(-thisIterStepSize, brzGradients, brzWeights)
         
+                mean            = currentMean
+                variance        = currentVariance
+        
+        
+                brzWeights -= currentStep
+                
                 (fromBreeze(brzWeights), 0)
         }
         
@@ -92,11 +107,18 @@ final class AdaGrad extends Updater {
         
 }
 
-final class AdaGradL1 extends Updater {
+final class AdamL1 extends Updater {
         
         // Records the past values of the square values of the gradient
-        var historicalGradients : BV[Double] = null
+        
+        var (mean, variance): (BV[Double], BV[Double]) = (null, null)
+        
         val epsilon : Float = 1e-8f
+        val decayFactor : Float = 1 - epsilon
+        val beta1 : Float = 0.9f
+        val beta2 : Float = 0.999f
+        
+        var time: Int = 0
         
         override def compute(
                                     weightsOld: Vector,
@@ -108,38 +130,43 @@ final class AdaGradL1 extends Updater {
         
                 val gradientSize = gradient.size
         
-                val thisIterStepSize:Double = stepSize
         
-                val brzWeights: BV[Double] = asBreeze(weightsOld.toArray).toDenseVector
-                var brzGradients: BV[Double] = asBreeze(gradient.toArray).toDenseVector
-        
-                var accumulatorSquare: BV[Double] = brzGradients.copy
-        
-        
-                print(iter)
-        
-                if(historicalGradients == null){
-                        historicalGradients = BDV.zeros[Double](gradientSize)
+                if( mean == null) {
+                        mean            = BDV.zeros[Double](gradientSize)
+                        variance        = BDV.zeros[Double](gradientSize)
                 }
         
-                accumulatorSquare :*= brzGradients
+                val brzWeights: BV[Double] = asBreeze(weightsOld.toArray).toDenseVector
+                val brzGradients: BV[Double] = asBreeze(gradient.toArray).toDenseVector
         
-                val accumulatorSquareCopy: BV[Double] = accumulatorSquare.copy
+                val brzGradientsSquared: BV[Double] = brzGradients :+ brzGradients
         
-                accumulatorSquare :+= historicalGradients
+                time = time + 1
         
-                accumulatorSquare :+= epsilon.toDouble
+                val currentIterStepSize : Double = ( stepSize * math.sqrt(1.0f - math.pow(beta2, time)) / ( 1.0f - math.pow(beta1,time)))
         
-                historicalGradients :+= accumulatorSquareCopy
+                val currentBeta1 : Double       = beta1 * math.pow(decayFactor, time - 1)
         
-                accumulatorSquare.map( item => math.sqrt(item))
+                val currentMeanLefthandside  : BV[Double]   = mean :* currentBeta1.toDouble
+                val currentMeanRighthandside : BV[Double]   = brzGradients :* (1.0f - currentBeta1)
+                val currentMean              : BV[Double]   = currentMeanLefthandside + currentMeanRighthandside
         
-                brzGradients :/= accumulatorSquare
+                val currentVarianceLefthandside  : BV[Double] = variance :* beta2.toDouble
+                val currentVarianceRighthandside : BV[Double] = brzGradientsSquared :* ( 1.0f - beta2).toDouble
+                val currentVariance              : BV[Double] = currentVarianceLefthandside + currentVarianceRighthandside
+                val currentVarianceSquareroot    : BV[Double] = currentVariance.copy.map(item => math.sqrt(item))
         
-                brzAxpy(-thisIterStepSize, brzGradients, brzWeights)
+                val currentStepLefthandside      : BV[Double] = currentMean :+ currentIterStepSize
+                val currentStepRighthandside     : BV[Double] = currentVarianceSquareroot + epsilon.toDouble
+                val currentStep                  : BV[Double] = currentStepLefthandside :/ currentStepRighthandside
         
         
-                val shrinkageVal = regParam * thisIterStepSize
+                mean            = currentMean
+                variance        = currentVariance
+        
+                brzWeights -= currentStep
+                
+                val shrinkageVal = regParam * currentIterStepSize
                 var i = 0
                 val len = brzWeights.length
                 while (i < len) {
@@ -147,8 +174,8 @@ final class AdaGradL1 extends Updater {
                         brzWeights(i) = signum(wi) * max(0.0, abs(wi) - shrinkageVal)
                         i += 1
                 }
-        
-        
+                
+                
                 (fromBreeze(brzWeights), brzNorm(brzWeights, 1.0) * regParam)
         }
         
@@ -191,11 +218,18 @@ final class AdaGradL1 extends Updater {
         
 }
 
-final class AdaGradL2 extends Updater {
+final class AdamL2 extends Updater {
         
         // Records the past values of the square values of the gradient
-        var historicalGradients : BV[Double] = null
-        val epsilon : Float = 1e-7f
+        
+        var (mean, variance): (BV[Double], BV[Double]) = (null, null)
+        
+        val epsilon : Float = 1e-8f
+        val decayFactor : Float = 1 - epsilon
+        val beta1 : Float = 0.9f
+        val beta2 : Float = 0.999f
+        
+        var time: Int = 0
         
         override def compute(
                                     weightsOld: Vector,
@@ -207,40 +241,45 @@ final class AdaGradL2 extends Updater {
         
                 val gradientSize = gradient.size
         
-                val thisIterStepSize:Double = stepSize
         
-                val brzWeights: BV[Double] = asBreeze(weightsOld.toArray).toDenseVector
-                var brzGradients: BV[Double] = asBreeze(gradient.toArray).toDenseVector
-        
-                var accumulatorSquare: BV[Double] = brzGradients.copy
-        
-        
-                print(iter)
-        
-                if(historicalGradients == null){
-                        historicalGradients = BDV.zeros[Double](gradientSize)
+                if( mean == null) {
+                        mean            = BDV.zeros[Double](gradientSize)
+                        variance        = BDV.zeros[Double](gradientSize)
                 }
         
-                accumulatorSquare :*= brzGradients
+                val brzWeights: BV[Double] = asBreeze(weightsOld.toArray).toDenseVector
+                val brzGradients: BV[Double] = asBreeze(gradient.toArray).toDenseVector
         
-                val accumulatorSquareCopy: BV[Double] = accumulatorSquare.copy
+                val brzGradientsSquared: BV[Double] = brzGradients :+ brzGradients
         
-                accumulatorSquare :+= historicalGradients
+                time = time + 1
         
-                accumulatorSquare :+= epsilon.toDouble
+                val currentIterStepSize : Double = ( stepSize * math.sqrt(1.0f - math.pow(beta2, time)) / ( 1.0f - math.pow(beta1,time)))
         
-                historicalGradients :+= accumulatorSquareCopy
+                val currentBeta1 : Double       = beta1 * math.pow(decayFactor, time - 1)
         
-                accumulatorSquare.map( item => math.sqrt(item))
+                val currentMeanLefthandside  : BV[Double]   = mean :* currentBeta1.toDouble
+                val currentMeanRighthandside : BV[Double]   = brzGradients :* (1.0f - currentBeta1)
+                val currentMean              : BV[Double]   = currentMeanLefthandside + currentMeanRighthandside
         
-                brzGradients :/= accumulatorSquare
-                
-                brzWeights :*= (1.0 - thisIterStepSize * regParam)
-                
-                brzAxpy(-thisIterStepSize, brzGradients, brzWeights)
+                val currentVarianceLefthandside  : BV[Double] = variance :* beta2.toDouble
+                val currentVarianceRighthandside : BV[Double] = brzGradientsSquared :* ( 1.0f - beta2).toDouble
+                val currentVariance              : BV[Double] = currentVarianceLefthandside + currentVarianceRighthandside
+                val currentVarianceSquareroot    : BV[Double] = currentVariance.copy.map(item => math.sqrt(item))
+        
+                val currentStepLefthandside      : BV[Double] = currentMean :+ currentIterStepSize
+                val currentStepRighthandside     : BV[Double] = currentVarianceSquareroot + epsilon.toDouble
+                val currentStep                  : BV[Double] = currentStepLefthandside :/ currentStepRighthandside
+        
+        
+                mean            = currentMean
+                variance        = currentVariance
+                brzWeights :*= (1.0 - currentIterStepSize * regParam)
+        
+                brzWeights -= currentStep
                 
                 val norm = brzNorm(brzWeights, 2.0)
-        
+                
                 (fromBreeze(brzWeights), 0.5 * regParam * norm * norm)
         }
         
@@ -283,5 +322,3 @@ final class AdaGradL2 extends Updater {
         }
         
 }
-
-
